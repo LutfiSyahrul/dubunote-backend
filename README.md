@@ -1,3 +1,138 @@
+# 📓 DubuNote - Aplikasi Pencatat Keuangan Pintar
+DubuNote adalah aplikasi pencatat pengeluaran keuangan pribadi yang mengintegrasikan pencatatan manual, visualisasi data, ekspor laporan, dan fitur **AI OCR Nota Scan** (membaca struk belanja otomatis menggunakan kamera).
+Proyek ini terbagi menjadi dua bagian utama:
+1. **Frontend (Flutter)**: Aplikasi mobile (Android/iOS) di direktori [dubunote-frontend](file:///d:/dubunote/dubunote-frontend).
+2. **Backend (Node.js Express)**: API Server & pemrosesan OCR di direktori [dubunote-backend](file:///d:/dubunote/dubunote-backend).
+---
+## 🗺️ Alur Sistem (System Flow)
+Secara umum, interaksi data antara Pengguna, Frontend (Flutter), Backend (Node.js), dan Database (MySQL) berjalan melalui skenario berikut:
+```mermaid
+graph TD
+    User([Pengguna]) <-->|Aksi UI| FE[Frontend Flutter]
+    FE <-->|HTTP API Request| BE[Backend Node.js]
+    BE <-->|Query Data| DB[(Database MySQL)]
+    BE <-->|Membaca Gambar| OCR[Engine Tesseract.js]
+```
+Berikut adalah penjelasan alur kerja fitur-fitur utama dengan bahasa yang sederhana:
+---
+### 1. Alur Masuk & Daftar Akun (Authentication Flow)
+Digunakan untuk mendaftarkan akun baru atau masuk ke akun yang sudah ada.
+```mermaid
+sequenceDiagram
+    actor Pengguna
+    participant FE as Frontend (Flutter)
+    participant BE as Backend (Node.js)
+    participant DB as Database (MySQL)
+    Pengguna->>FE: Isi Form Register / Login
+    FE->>BE: Kirim data (Email & Password)
+    Note over BE: Enkripsi password dengan Bcrypt
+    BE->>DB: Simpan akun baru / Cek akun terdaftar
+    DB-->>BE: Mengembalikan status akun
+    BE-->>FE: Response JSON (Status sukses & User ID)
+    FE->>FE: Simpan Sesi Login di HP (SharedPreferences)
+    FE->>Pengguna: Masuk ke Halaman Utama (Dashboard)
+```
+* **Cara kerja sederhana**: Pengguna memasukkan email dan password di aplikasi Flutter. Backend menerima data tersebut, mengenkripsi password demi keamanan (*Bcrypt*), lalu memeriksa atau menyimpannya di MySQL. Jika sukses, aplikasi menyimpan sesi login di memori HP agar pengguna tidak perlu login berulang kali.
+---
+### 2. Alur Pencatatan Pengeluaran Manual (Manual Transaction Flow)
+Digunakan untuk mencatat belanja secara manual melalui kalender beranda.
+```mermaid
+sequenceDiagram
+    actor Pengguna
+    participant FE as Frontend (Flutter)
+    participant BE as Backend (Node.js)
+    participant DB as Database (MySQL)
+    Pengguna->>FE: Klik tanggal di Kalender & Isi Form Belanja
+    FE->>BE: Kirim detail transaksi (Jumlah, Kategori, Keterangan, Tanggal)
+    BE->>DB: INSERT INTO transaksi
+    DB-->>BE: Sukses menyimpan data
+    BE-->>FE: Response Sukses (ID Transaksi)
+    FE->>FE: Tarik ulang data terbaru (Auto-Refresh)
+    FE->>Pengguna: Tampilkan nominal pengeluaran di Dashboard & Grafik
+```
+* **Cara kerja sederhana**: Pengguna memilih tanggal pada kalender pintar di halaman utama, memasukkan jumlah uang, kategori, dan catatan belanja. Aplikasi mengirim data tersebut ke server untuk disimpan ke dalam tabel database. Halaman utama akan memuat ulang data secara otomatis dan memperbarui grafik belanja harian.
+---
+### 3. Alur Pindai Nota Otomatis (AI OCR Scan Flow)
+Fitur pintar untuk membaca isi struk belanja belanja menggunakan kamera HP atau gambar dari galeri.
+```mermaid
+sequenceDiagram
+    actor Pengguna
+    participant FE as Frontend (Flutter)
+    participant BE as Backend (Node.js)
+    participant OCR as Tesseract OCR (Backend)
+    participant DB as Database (MySQL)
+    Pengguna->>FE: Jepret Nota (Kamera) / Pilih Foto (Galeri)
+    FE->>BE: Upload file gambar (Multipart Form-Data)
+    Note over BE: Multer menyimpan gambar di folder /uploads
+    BE->>OCR: Jalankan analisis gambar (Bahasa Indonesia)
+    OCR-->>BE: Kembalikan hasil teks mentah nota
+    Note over BE: Backend menyaring nama toko & mencari nominal TOTAL belanja
+    BE->>DB: Simpan riwayat pembacaan nota ke database
+    BE-->>FE: Kirim data hasil ekstrak (Nama Toko & Total Harga)
+    FE->>Pengguna: Tampilkan form konfirmasi (Bisa diedit/dikoreksi)
+    Pengguna->>FE: Tekan tombol "Kirim"
+    FE->>BE: Kirim transaksi terkonfirmasi
+    BE->>DB: Masukkan ke tabel transaksi utama
+    BE-->>FE: Sukses menyimpan
+    FE->>Pengguna: Kembali ke Beranda & Data terupdate
+```
+* **Cara kerja sederhana**:
+  1. Pengguna memotret nota belanja.
+  2. Gambar nota dikirim ke server backend Node.js.
+  3. Server menggunakan kecerdasan **Tesseract.js** untuk membaca tulisan yang ada pada nota tersebut.
+  4. Server memilah data untuk mencari **Nama Toko** (baris awal teks yang jelas) dan **Total Harga** (mencari baris teks yang memuat kata "TOTAL" di bagian bawah struk).
+  5. Hasil bacaan dikembalikan ke layar konfirmasi di HP pengguna. Pengguna dapat mengoreksi angka jika ada kesalahan baca sebelum akhirnya menekan tombol simpan ke database.
+---
+### 4. Alur Grafik & Visualisasi Tren (Dashboard & Chart Flow)
+Bagaimana grafik tren pengeluaran harian dan tahunan ditampilkan di layar HP.
+```mermaid
+sequenceDiagram
+    participant FE as Frontend (Flutter)
+    participant BE as Backend (Node.js)
+    participant DB as Database (MySQL)
+    FE->>FE: Deteksi bulan berjalan (DateTime.now)
+    FE->>BE: Request data pengeluaran (Kirim Parameter Bulan & Tahun)
+    BE->>DB: Hitung total & kumpulkan pengeluaran per hari (Group By Day)
+    DB-->>BE: Hasil agregasi angka
+    BE-->>FE: Response data summary & grafik harian
+    Note over FE: LayoutBuilder menghitung skala tinggi batang
+    FE->>FE: Gambar grafik batang secara dinamis di layar
+```
+* **Cara kerja sederhana**: Saat aplikasi dibuka, Flutter mendeteksi bulan sekarang secara realtime. Flutter lalu meminta data rekap harian ke backend. Backend menjumlahkan transaksi di database berdasarkan masing-masing tanggal. Flutter menerima data ini lalu secara dinamis menggambar batang grafik menggunakan `LayoutBuilder` sehingga tinggi batang sesuai dengan perbandingan pengeluaran antar-hari.
+---
+### 5. Alur Ekspor & Bagikan Laporan (Export & Share Flow)
+Digunakan untuk mencetak rekap keuangan dalam bentuk PDF, Excel, maupun data CSV.
+```mermaid
+sequenceDiagram
+    actor Pengguna
+    participant FE as Frontend (Flutter)
+    participant BE as Backend (Node.js)
+    participant DB as Database (MySQL)
+    Pengguna->>FE: Pilih Rentang (Harian/Bulanan/Tahunan), Kategori, & Format (PDF/Excel/CSV)
+    FE->>BE: Kirim parameter request ekspor
+    BE->>DB: Tarik daftar transaksi sesuai filter
+    DB-->>BE: Hasil data transaksi
+    Note over BE: Generate file biner (ExcelJS / PDFKit-Table / JSON2CSV)
+    BE-->>FE: Kirim file dalam bentuk Byte Stream
+    
+    alt Aksi: Unduh Laporan
+        FE->>FE: Simpan file di folder dokumen HP (PathProvider)
+        FE->>FE: Buka dokumen otomatis (OpenFilex)
+        FE->>Pengguna: Tampilkan file laporan ke layar
+    else Aksi: Bagikan Laporan
+        FE->>FE: Simpan file di folder temporary HP
+        FE->>FE: Panggil Share Tray bawaan HP (SharePlus)
+        FE->>Pengguna: Tampilkan pilihan share (WhatsApp, Email, Telegram, dll.)
+    end
+```
+* **Cara kerja sederhana**: Pengguna memilih rentang laporan dan format file (PDF/Excel/CSV) lalu menekan tombol:
+  * **Unduh**: Aplikasi mengirim permintaan ke backend untuk dibuatkan file secara instan. File biner dikirim balik ke HP, disimpan di folder Dokumen, lalu langsung dibuka secara otomatis.
+  * **Bagikan**: File dibuat oleh backend, diunduh ke folder sementara perangkat, lalu memicu menu berbagi bawaan HP sehingga pengguna bisa langsung mengirimkannya via WhatsApp atau Email.
+---
+## 🛠️ Panduan Pengembangan Lebih Lanjut
+Untuk rincian penempatan kode program pada setiap alur di atas, silakan baca dokumentasi analisis teknis di [presentasi.md]
+
+===================================================================================================================
 # Presentasi Analisis Aplikasi DubuNote
 Dokumen ini berisi jawaban detail dan teknis atas pertanyaan-pertanyaan seputar arsitektur serta implementasi fitur pada aplikasi **DubuNote** (Frontend Flutter & Backend Node.js).
 ---
